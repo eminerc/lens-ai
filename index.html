@@ -1,9 +1,10 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>prototype</title>
+    <title>AI Camera Pro</title>
     <style>
         * {
             margin: 0;
@@ -559,7 +560,7 @@
         <video id="video" autoplay muted playsinline class="hidden"></video>
         
         <div class="top-bar">
-            <div class="app-title">L E N S</div>
+            <div class="app-title">AI Camera Pro</div>
             <div class="top-controls">
                 <button class="icon-btn" onclick="toggleFlash()" title="Flash">
                     <svg viewBox="0 0 24 24">
@@ -651,6 +652,12 @@
         let currentPhotoIndex = -1;
         let currentCamera = 'environment'; // 'user' or 'environment'
         let flashMode = false;
+        let serverUrl = 'http://localhost:5000'; // Python server URL
+
+        // AI Enhancement state
+        let isEnhancing = false;
+        let currentOriginal = null;
+        let currentEnhanced = null;
 
         // Initialize app with better error handling
         document.addEventListener('DOMContentLoaded', () => {
@@ -729,12 +736,15 @@
         }
 
         async function capturePhoto() {
-            if (!video) return;
+            if (!video || isEnhancing) return;
             
             try {
+                isEnhancing = true;
+                
                 // Flash effect
                 const captureBtn = document.getElementById('captureBtn');
                 captureBtn.classList.add('capturing');
+                captureBtn.disabled = true;
                 
                 // Create canvas and capture frame
                 const canvas = document.createElement('canvas');
@@ -750,30 +760,553 @@
                 
                 ctx.drawImage(video, 0, 0);
                 
-                // Create photo object
-                const photoData = canvas.toDataURL('image/jpeg', 0.9);
-                const photo = {
-                    id: Date.now(),
-                    data: photoData,
-                    timestamp: new Date().toISOString(),
-                    camera: currentCamera
-                };
+                // Get original image
+                const originalImageData = canvas.toDataURL('image/jpeg', 0.9);
+                currentOriginal = originalImageData;
                 
-                // Add to photos array
-                photos.unshift(photo); // Add to beginning
-                savePhotos();
-                updateUI();
+                showStatus('📸 Photo captured! Enhancing with AI...');
                 
-                showStatus('Photo saved!');
+                // Show processing overlay
+                const processingOverlay = document.createElement('div');
+                processingOverlay.className = 'status-overlay show';
+                processingOverlay.innerHTML = `
+                    <div style="text-align: center;">
+                        <div style="font-size: 24px; margin-bottom: 10px;">🎨</div>
+                        <div>Enhancing photo with AI...</div>
+                        <div style="font-size: 12px; margin-top: 5px; opacity: 0.7;" id="enhanceProgress">Analyzing image...</div>
+                    </div>
+                `;
+                document.body.appendChild(processingOverlay);
+                
+                // Enhance photo with AI
+                const enhancementResult = await enhancePhotoWithAI(originalImageData);
+                
+                // Remove processing overlay
+                document.body.removeChild(processingOverlay);
+                
+                if (enhancementResult.success) {
+                    currentEnhanced = enhancementResult.enhanced_image;
+                    
+                    // Create photo objects for both versions
+                    const timestamp = new Date().toISOString();
+                    
+                    const originalPhoto = {
+                        id: Date.now(),
+                        data: originalImageData,
+                        timestamp: timestamp,
+                        camera: currentCamera,
+                        type: 'original'
+                    };
+                    
+                    const enhancedPhoto = {
+                        id: Date.now() + 1,
+                        data: enhancementResult.enhanced_image,
+                        timestamp: timestamp,
+                        camera: currentCamera,
+                        type: 'enhanced',
+                        method: enhancementResult.method,
+                        prompt: enhancementResult.prompt_used
+                    };
+                    
+                    // Add both to photos array
+                    photos.unshift(enhancedPhoto, originalPhoto);
+                    savePhotos();
+                    updateUI();
+                    
+                    // Show preview comparison
+                    showEnhancementPreview(originalImageData, enhancementResult);
+                    
+                } else {
+                    // Enhancement failed, save original only
+                    const photo = {
+                        id: Date.now(),
+                        data: originalImageData,
+                        timestamp: new Date().toISOString(),
+                        camera: currentCamera,
+                        type: 'original'
+                    };
+                    
+                    photos.unshift(photo);
+                    savePhotos();
+                    updateUI();
+                    
+                    showStatus(`Enhancement failed: ${enhancementResult.error}. Original photo saved.`);
+                }
                 
                 // Remove flash effect
                 setTimeout(() => {
                     captureBtn.classList.remove('capturing');
+                    captureBtn.disabled = false;
                 }, 300);
                 
             } catch (error) {
                 console.error('Capture error:', error);
-                showStatus('Failed to capture photo');
+                showStatus('Failed to capture or enhance photo');
+                
+                const captureBtn = document.getElementById('captureBtn');
+                captureBtn.classList.remove('capturing');
+                captureBtn.disabled = false;
+            } finally {
+                isEnhancing = false;
+            }
+        }
+
+        // AI Enhancement Functions
+        async function enhancePhotoWithAI(imageDataUrl) {
+            try {
+                updateEnhanceProgress('Analyzing image...');
+                
+                // Try Hugging Face first
+                if (AI_CONFIG.huggingface.apiKey !== 'your-huggingface-api-key-here') {
+                    const hfResult = await enhanceWithHuggingFace(imageDataUrl);
+                    if (hfResult.success) return hfResult;
+                }
+                
+                // Try OpenAI as backup
+                if (AI_CONFIG.openai.apiKey !== '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') {
+                    const openaiResult = await enhanceWithOpenAI(imageDataUrl);
+                    if (openaiResult.success) return openaiResult;
+                }
+                
+                // Fallback to local enhancement
+                updateEnhanceProgress('Using local enhancement...');
+                return await enhanceWithCanvas(imageDataUrl);
+                
+            } catch (error) {
+                console.error('AI enhancement error:', error);
+                return {
+                    success: false,
+                    error: 'Enhancement failed: ' + error.message
+                };
+            }
+        }
+
+        async function enhanceWithHuggingFace(imageDataUrl) {
+            try {
+                updateEnhanceProgress('Connecting to Hugging Face AI...');
+                
+                // Convert data URL to blob
+                const response = await fetch(imageDataUrl);
+                const blob = await response.blob();
+                
+                // Convert to base64
+                const reader = new FileReader();
+                const base64Promise = new Promise((resolve) => {
+                    reader.onloadend = () => resolve(reader.result.split(',')[1]);
+                });
+                reader.readAsDataURL(blob);
+                const base64Image = await base64Promise;
+                
+                updateEnhanceProgress('Processing with AI...');
+                
+                const apiResponse = await fetch(AI_CONFIG.huggingface.endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${AI_CONFIG.huggingface.apiKey}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        inputs: {
+                            image: base64Image,
+                            prompt: "enhance this photo with better lighting, vibrant colors, improved contrast, and professional quality"
+                        },
+                        parameters: {
+                            num_inference_steps: 20,
+                            guidance_scale: 7.5,
+                            image_guidance_scale: 1.5
+                        }
+                    })
+                });
+                
+                if (apiResponse.ok) {
+                    const enhancedBlob = await apiResponse.blob();
+                    const enhancedDataUrl = await blobToDataUrl(enhancedBlob);
+                    
+                    return {
+                        success: true,
+                        enhanced_image: enhancedDataUrl,
+                        method: 'Hugging Face AI',
+                        prompt_used: 'Professional photo enhancement with AI'
+                    };
+                } else {
+                    throw new Error(`Hugging Face API error: ${apiResponse.status}`);
+                }
+                
+            } catch (error) {
+                console.error('Hugging Face enhancement failed:', error);
+                return { success: false, error: error.message };
+            }
+        }
+
+        async function enhanceWithOpenAI(imageDataUrl) {
+            try {
+                updateEnhanceProgress('Connecting to OpenAI...');
+                
+                // Convert data URL to blob
+                const response = await fetch(imageDataUrl);
+                const blob = await response.blob();
+                
+                // Create FormData for OpenAI API
+                const formData = new FormData();
+                formData.append('image', blob, 'photo.png');
+                formData.append('prompt', 'enhance this photo with better lighting, colors, and professional quality');
+                formData.append('n', '1');
+                formData.append('size', '1024x1024');
+                
+                updateEnhanceProgress('Processing with OpenAI...');
+                
+                const apiResponse = await fetch(AI_CONFIG.openai.endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${AI_CONFIG.openai.apiKey}`
+                    },
+                    body: formData
+                });
+                
+                if (apiResponse.ok) {
+                    const result = await apiResponse.json();
+                    const enhancedUrl = result.data[0].url;
+                    
+                    // Download the enhanced image
+                    const imgResponse = await fetch(enhancedUrl);
+                    const imgBlob = await imgResponse.blob();
+                    const enhancedDataUrl = await blobToDataUrl(imgBlob);
+                    
+                    return {
+                        success: true,
+                        enhanced_image: enhancedDataUrl,
+                        method: 'OpenAI DALL-E',
+                        prompt_used: 'Professional photo enhancement'
+                    };
+                } else {
+                    throw new Error(`OpenAI API error: ${apiResponse.status}`);
+                }
+                
+            } catch (error) {
+                console.error('OpenAI enhancement failed:', error);
+                return { success: false, error: error.message };
+            }
+        }
+
+        async function enhanceWithCanvas(imageDataUrl) {
+            try {
+                updateEnhanceProgress('Applying smart filters...');
+                
+                return new Promise((resolve) => {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    const img = new Image();
+                    
+                    img.onload = () => {
+                        canvas.width = img.width;
+                        canvas.height = img.height;
+                        
+                        // Apply intelligent enhancement
+                        applySmartEnhancement(ctx, img, canvas);
+                        
+                        const enhancedDataUrl = canvas.toDataURL('image/jpeg', 0.95);
+                        
+                        resolve({
+                            success: true,
+                            enhanced_image: enhancedDataUrl,
+                            method: 'Smart Canvas Enhancement',
+                            prompt_used: 'Intelligent local enhancement'
+                        });
+                    };
+                    
+                    img.src = imageDataUrl;
+                });
+                
+            } catch (error) {
+                console.error('Canvas enhancement failed:', error);
+                return { success: false, error: error.message };
+            }
+        }
+
+        function applySmartEnhancement(ctx, img, canvas) {
+            // Draw original image
+            ctx.drawImage(img, 0, 0);
+            
+            // Get image data for analysis
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imageData.data;
+            
+            // Analyze image characteristics
+            const analysis = analyzeImage(data);
+            
+            // Apply enhancements based on analysis
+            if (analysis.isDark) {
+                // Brighten dark images
+                ctx.filter = 'brightness(130%) contrast(120%) saturate(110%)';
+                ctx.drawImage(img, 0, 0);
+            } else if (analysis.isLowContrast) {
+                // Boost contrast for flat images
+                ctx.filter = 'contrast(140%) saturate(125%) brightness(105%)';
+                ctx.drawImage(img, 0, 0);
+            } else {
+                // General enhancement
+                ctx.filter = 'contrast(115%) saturate(120%) brightness(108%)';
+                ctx.drawImage(img, 0, 0);
+            }
+            
+            // Apply color temperature adjustment
+            ctx.globalCompositeOperation = 'multiply';
+            ctx.fillStyle = 'rgba(255, 240, 220, 0.1)'; // Warm tone
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Apply vignette
+            applyVignette(ctx, canvas.width, canvas.height);
+            
+            // Apply sharpening
+            applySharpeningFilter(ctx, canvas);
+            
+            // Reset composition
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.filter = 'none';
+        }
+
+        function analyzeImage(data) {
+            let totalBrightness = 0;
+            let minBrightness = 255;
+            let maxBrightness = 0;
+            
+            // Sample every 10th pixel for performance
+            for (let i = 0; i < data.length; i += 40) {
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+                
+                // Calculate perceived brightness
+                const brightness = 0.299 * r + 0.587 * g + 0.114 * b;
+                totalBrightness += brightness;
+                
+                minBrightness = Math.min(minBrightness, brightness);
+                maxBrightness = Math.max(maxBrightness, brightness);
+            }
+            
+            const pixelCount = data.length / 40;
+            const avgBrightness = totalBrightness / pixelCount;
+            const contrast = maxBrightness - minBrightness;
+            
+            return {
+                isDark: avgBrightness < 80,
+                isLowContrast: contrast < 100,
+                avgBrightness: avgBrightness,
+                contrast: contrast
+            };
+        }
+
+        function applyVignette(ctx, width, height) {
+            const centerX = width / 2;
+            const centerY = height / 2;
+            const radius = Math.max(width, height) * 0.7;
+            
+            const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius);
+            gradient.addColorStop(0, 'rgba(0,0,0,0)');
+            gradient.addColorStop(0.8, 'rgba(0,0,0,0)');
+            gradient.addColorStop(1, 'rgba(0,0,0,0.3)');
+            
+            ctx.globalCompositeOperation = 'multiply';
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+        }
+
+        function applySharpeningFilter(ctx, canvas) {
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imageData.data;
+            const width = canvas.width;
+            const height = canvas.height;
+            
+            // Simplified sharpening kernel
+            const sharpenKernel = [
+                0, -0.5, 0,
+                -0.5, 3, -0.5,
+                0, -0.5, 0
+            ];
+            
+            const newData = new Uint8ClampedArray(data);
+            
+            // Apply sharpening (simplified for performance)
+            for (let y = 1; y < height - 1; y++) {
+                for (let x = 1; x < width - 1; x++) {
+                    for (let c = 0; c < 3; c++) { // RGB only
+                        let sum = 0;
+                        
+                        for (let ky = -1; ky <= 1; ky++) {
+                            for (let kx = -1; kx <= 1; kx++) {
+                                const idx = ((y + ky) * width + (x + kx)) * 4 + c;
+                                const kernelIdx = (ky + 1) * 3 + (kx + 1);
+                                sum += data[idx] * sharpenKernel[kernelIdx];
+                            }
+                        }
+                        
+                        const idx = (y * width + x) * 4 + c;
+                        newData[idx] = Math.max(0, Math.min(255, sum));
+                    }
+                }
+            }
+            
+            const newImageData = new ImageData(newData, width, height);
+            ctx.putImageData(newImageData, 0, 0);
+        }
+
+        // Utility Functions
+        function blobToDataUrl(blob) {
+            return new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result);
+                reader.readAsDataURL(blob);
+            });
+        }
+
+        function updateEnhanceProgress(message) {
+            const progressEl = document.getElementById('enhanceProgress');
+            if (progressEl) progressEl.textContent = message;
+        }
+
+        // Enhancement Preview
+        function showEnhancementPreview(original, enhancementResult) {
+            // Create preview modal
+            const modal = document.createElement('div');
+            modal.className = 'enhancement-preview-modal';
+            modal.innerHTML = `
+                <div class="preview-content">
+                    <div class="preview-header">
+                        <h3>AI Enhancement Complete</h3>
+                        <button onclick="closePreview()" class="close-btn">×</button>
+                    </div>
+                    
+                    <div class="preview-comparison">
+                        <div class="preview-image">
+                            <img src="${original}" alt="Original">
+                            <div class="image-label">Original</div>
+                        </div>
+                        <div class="preview-image">
+                            <img src="${enhancementResult.enhanced_image}" alt="Enhanced">
+                            <div class="image-label">AI Enhanced</div>
+                        </div>
+                    </div>
+                    
+                    <div class="preview-info">
+                        <div class="enhancement-details">
+                            <div><strong>Method:</strong> ${enhancementResult.method}</div>
+                            <div><strong>Processing Time:</strong> ${enhancementResult.processing_time}ms</div>
+                            <div><strong>Prompt:</strong> ${enhancementResult.prompt_used}</div>
+                        </div>
+                    </div>
+                    
+                    <div class="preview-actions">
+                        <button onclick="closePreview()" class="action-btn">Continue</button>
+                    </div>
+                </div>
+            `;
+            
+            // Add styles for preview modal
+            const style = document.createElement('style');
+            style.textContent = `
+                .enhancement-preview-modal {
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    background: rgba(0,0,0,0.95);
+                    z-index: 1000;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    padding: 20px;
+                }
+                
+                .preview-content {
+                    background: #1C1C1E;
+                    border-radius: 16px;
+                    padding: 20px;
+                    max-width: 90vw;
+                    max-height: 90vh;
+                    overflow-y: auto;
+                }
+                
+                .preview-header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-bottom: 20px;
+                    color: white;
+                }
+                
+                .close-btn {
+                    background: none;
+                    border: none;
+                    color: white;
+                    font-size: 24px;
+                    cursor: pointer;
+                    padding: 5px;
+                }
+                
+                .preview-comparison {
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 15px;
+                    margin-bottom: 20px;
+                }
+                
+                .preview-image {
+                    position: relative;
+                    border-radius: 8px;
+                    overflow: hidden;
+                }
+                
+                .preview-image img {
+                    width: 100%;
+                    height: auto;
+                    display: block;
+                }
+                
+                .preview-image .image-label {
+                    position: absolute;
+                    top: 10px;
+                    left: 10px;
+                    background: rgba(0,0,0,0.8);
+                    color: white;
+                    padding: 5px 10px;
+                    border-radius: 12px;
+                    font-size: 12px;
+                }
+                
+                .enhancement-details {
+                    color: #ccc;
+                    font-size: 14px;
+                    line-height: 1.6;
+                    margin-bottom: 20px;
+                }
+                
+                .preview-actions {
+                    text-align: center;
+                }
+                
+                @media (max-width: 768px) {
+                    .preview-comparison {
+                        grid-template-columns: 1fr;
+                    }
+                }
+            `;
+            
+            document.head.appendChild(style);
+            document.body.appendChild(modal);
+            
+            // Auto-close after 5 seconds
+            setTimeout(() => {
+                if (document.body.contains(modal)) {
+                    closePreview();
+                }
+            }, 5000);
+        }
+
+        function closePreview() {
+            const modal = document.querySelector('.enhancement-preview-modal');
+            if (modal) {
+                document.body.removeChild(modal);
             }
         }
 
@@ -867,7 +1400,7 @@
                         const file = new File([blob], `photo-${photo.id}.jpg`, { type: 'image/jpeg' });
                         navigator.share({
                             files: [file],
-                            title: 'Photo from lens.ai'
+                            title: 'Photo from AI Camera Pro'
                         });
                     })
                     .catch(error => {
