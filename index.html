@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -9,7 +10,13 @@
 <body>
     <div class="app-container">
         <!-- Loading Screen -->
-        <div id="loadingText">Loading AI Models...</div>
+        <div id="loadingText">
+            <div>Loading AI Models...</div>
+            <div id="loadingDetails" style="font-size: 14px; margin-top: 10px; opacity: 0.8;"></div>
+            <div id="loadingProgress" style="width: 200px; height: 4px; background: #333; margin: 15px auto; border-radius: 2px;">
+                <div id="progressBar" style="width: 0%; height: 100%; background: #00ff00; border-radius: 2px; transition: width 0.3s;"></div>
+            </div>
+        </div>
         
         <!-- Camera View -->
         <div class="camera-container" id="cameraView">
@@ -80,7 +87,154 @@
     </div>
 
     <!-- Scripts -->
-    <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
+    <script>
+        // Loading progress tracking
+        let loadingStartTime = Date.now();
+        let loadingInterval;
+        
+        function updateLoadingProgress(message, progress) {
+            const details = document.getElementById('loadingDetails');
+            const progressBar = document.getElementById('progressBar');
+            
+            if (details) details.textContent = message;
+            if (progressBar) progressBar.style.width = progress + '%';
+        }
+        
+        function startLoadingProgress() {
+            updateLoadingProgress('Downloading OpenCV.js...', 10);
+            
+            loadingInterval = setInterval(() => {
+                const elapsed = Date.now() - loadingStartTime;
+                if (elapsed > 5000) {
+                    updateLoadingProgress('Still loading... This may take a moment on slow connections', 30);
+                }
+                if (elapsed > 10000) {
+                    updateLoadingProgress('Loading is taking longer than expected. Please check your connection.', 50);
+                }
+                if (elapsed > 20000) {
+                    clearInterval(loadingInterval);
+                    showLoadingError();
+                }
+            }, 1000);
+        }
+        
+        function showLoadingError() {
+            const loadingText = document.getElementById('loadingText');
+            loadingText.innerHTML = `
+                <div style="color: #ff6b6b;">Failed to load OpenCV.js</div>
+                <div style="font-size: 14px; margin-top: 10px;">
+                    This might be due to:
+                    <ul style="text-align: left; margin: 10px 0;">
+                        <li>Slow internet connection</li>
+                        <li>CDN issues</li>
+                        <li>Browser compatibility</li>
+                    </ul>
+                </div>
+                <button onclick="retryLoading()" style="margin-top: 15px; padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer;">
+                    Retry Loading
+                </button>
+                <button onclick="startWithoutOpenCV()" style="margin-top: 10px; padding: 10px 20px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer;">
+                    Start Without Object Detection
+                </button>
+            `;
+        }
+        
+        function retryLoading() {
+            location.reload();
+        }
+        
+        function startWithoutOpenCV() {
+            console.log('Starting without OpenCV');
+            document.getElementById('loadingText').style.display = 'none';
+            
+            // Initialize basic camera app without object detection
+            window.cameraApp = new CameraApp();
+            window.cameraApp.initializeBasic();
+        }
+        
+        // Start loading progress
+        startLoadingProgress();
+        
+        // OpenCV loading handlers
+        window.onOpenCvReady = function() {
+            console.log('OpenCV.js loaded successfully');
+            clearInterval(loadingInterval);
+            updateLoadingProgress('OpenCV loaded! Initializing camera...', 80);
+            
+            setTimeout(() => {
+                try {
+                    // Create and initialize app
+                    window.cameraApp = new CameraApp();
+                    window.cameraApp.initialize();
+                    
+                    // Hide loading text
+                    document.getElementById('loadingText').style.display = 'none';
+                    updateLoadingProgress('Ready!', 100);
+                    
+                    // Initialize camera
+                    window.cameraApp.initializeCamera();
+                } catch (error) {
+                    console.error('App initialization failed:', error);
+                    showInitError(error);
+                }
+            }, 500);
+        };
+        
+        function showInitError(error) {
+            const loadingText = document.getElementById('loadingText');
+            loadingText.innerHTML = `
+                <div style="color: #ff6b6b;">Initialization Failed</div>
+                <div style="font-size: 14px; margin-top: 10px;">
+                    Error: ${error.message}
+                </div>
+                <button onclick="retryLoading()" style="margin-top: 15px; padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer;">
+                    Retry
+                </button>
+            `;
+        }
+        
+        // Timeout fallback
+        setTimeout(() => {
+            if (!window.cv && !window.cameraApp) {
+                console.warn('OpenCV failed to load within 30 seconds');
+                showLoadingError();
+            }
+        }, 30000);
+    </script>
+    
+    <!-- Try to load OpenCV.js with error handling -->
+    <script>
+        function loadOpenCV() {
+            const script = document.createElement('script');
+            script.src = 'https://docs.opencv.org/4.8.0/opencv.js';
+            script.async = true;
+            script.onload = function() {
+                updateLoadingProgress('OpenCV script loaded, initializing...', 60);
+            };
+            script.onerror = function() {
+                console.error('Failed to load OpenCV.js from CDN');
+                updateLoadingProgress('Failed to load from primary CDN, trying alternative...', 40);
+                
+                // Try alternative CDN
+                const altScript = document.createElement('script');
+                altScript.src = 'https://cdn.jsdelivr.net/npm/opencv.js@4.8.0/dist/opencv.js';
+                altScript.async = true;
+                altScript.onload = function() {
+                    updateLoadingProgress('Alternative CDN loaded, initializing...', 60);
+                };
+                altScript.onerror = function() {
+                    console.error('Failed to load OpenCV.js from alternative CDN');
+                    showLoadingError();
+                };
+                document.head.appendChild(altScript);
+            };
+            document.head.appendChild(script);
+        }
+        
+        // Start loading
+        loadOpenCV();
+    </script>
+    
     <script src="objectDetection.js"></script>
     <script src="imageEnhancement.js"></script>
     <script src="app.js"></script>
