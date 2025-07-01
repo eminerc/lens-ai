@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>L E N S</title>
+    <title>prototype</title>
     <style>
         * {
             margin: 0;
@@ -559,7 +559,7 @@
         <video id="video" autoplay muted playsinline class="hidden"></video>
         
         <div class="top-bar">
-            <div class="app-title">AI Camera Pro</div>
+            <div class="app-title">L E N S</div>
             <div class="top-controls">
                 <button class="icon-btn" onclick="toggleFlash()" title="Flash">
                     <svg viewBox="0 0 24 24">
@@ -867,7 +867,7 @@
                         const file = new File([blob], `photo-${photo.id}.jpg`, { type: 'image/jpeg' });
                         navigator.share({
                             files: [file],
-                            title: 'Photo from AI Camera Pro'
+                            title: 'Photo from lens.ai'
                         });
                     })
                     .catch(error => {
