@@ -205,24 +205,127 @@ class CameraApp {
             this.canvas.width = this.video.videoWidth;
             this.canvas.height = this.video.videoHeight;
             
-            // Initialize object detector
-            const success = this.objectDetector.initialize(
-                this.video.videoWidth, 
-                this.video.videoHeight
-            );
-            
-            if (success) {
-                this.streaming = true;
-                this.startVideoProcessing();
-                this.updateStatus('Camera ready! Point at objects for AI detection.');
+            // Initialize object detector if available
+            if (this.objectDetector) {
+                const success = this.objectDetector.initialize(
+                    this.video.videoWidth, 
+                    this.video.videoHeight
+                );
+                
+                if (success) {
+                    this.streaming = true;
+                    this.startVideoProcessing();
+                    this.updateStatus('Camera ready with AI object detection!');
+                } else {
+                    throw new Error('Failed to initialize object detector');
+                }
             } else {
-                throw new Error('Failed to initialize object detector');
+                // Start without object detection
+                this.streaming = true;
+                this.startBasicVideoProcessing();
+                this.updateStatus('Camera ready! (Object detection unavailable)');
             }
             
         } catch (error) {
             console.error('Camera initialization failed:', error);
             this.updateStatus(`Camera error: ${error.message}`);
         }
+    }
+
+    /**
+     * Initialize basic version without OpenCV
+     */
+    async initializeBasic() {
+        try {
+            // Initialize UI elements
+            this.initializeElements();
+            
+            // Initialize image enhancer only
+            this.imageEnhancer = new ImageEnhancer();
+            this.setupImageEnhancerCallbacks();
+            
+            // Setup event listeners
+            this.setupEventListeners();
+            
+            // Load saved API configuration
+            this.loadApiConfig();
+            
+            this.updateStatus('Initializing camera (without object detection)...');
+            
+            // Initialize camera
+            await this.initializeCameraBasic();
+            
+        } catch (error) {
+            console.error('Failed to initialize basic app:', error);
+            this.updateStatus('Failed to initialize application');
+        }
+    }
+
+    /**
+     * Initialize camera without object detection
+     */
+    async initializeCameraBasic() {
+        try {
+            this.video = this.elements.videoElement;
+            this.canvas = this.elements.canvasOutput;
+            this.ctx = this.canvas.getContext('2d');
+            
+            // Request camera access
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { 
+                    facingMode: 'environment',
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                }
+            });
+            
+            this.video.srcObject = stream;
+            this.video.play();
+            
+            // Wait for video metadata
+            await new Promise((resolve) => {
+                this.video.addEventListener('loadedmetadata', resolve, { once: true });
+            });
+            
+            // Setup canvas dimensions
+            this.canvas.width = this.video.videoWidth;
+            this.canvas.height = this.video.videoHeight;
+            
+            this.streaming = true;
+            this.startBasicVideoProcessing();
+            this.updateStatus('Camera ready! Tap to capture photos.');
+            
+        } catch (error) {
+            console.error('Basic camera initialization failed:', error);
+            this.updateStatus(`Camera error: ${error.message}`);
+        }
+    }
+
+    /**
+     * Start basic video processing without object detection
+     */
+    startBasicVideoProcessing() {
+        const processFrame = () => {
+            if (!this.streaming) return;
+            
+            try {
+                // Just display the video feed
+                this.ctx.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
+                
+                // Update UI to show no object detection
+                this.elements.detectionLabels.innerHTML = '<div class="label-tag" style="background: rgba(255,165,0,0.2); border-color: #ffa500;">No object detection</div>';
+                this.elements.detectionStats.textContent = 'Object detection unavailable - photos will use general enhancement';
+                
+                // Continue processing
+                requestAnimationFrame(processFrame);
+                
+            } catch (error) {
+                console.error('Frame processing error:', error);
+                requestAnimationFrame(processFrame);
+            }
+        };
+        
+        processFrame();
     }
 
     /**
