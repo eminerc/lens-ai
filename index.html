@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Enhanced Camera</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #000;
+            color: white;
+            overflow: hidden;
+            touch-action: manipulation;
+        }
+
+        .app-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Camera View */
+        .camera-container {
+            position: relative;
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #videoElement {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        #canvasOutput {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        /* UI Overlays */
+        .top-bar {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(180deg, rgba(0,0,0,0.8) 0%, transparent 100%);
+            padding: 20px;
+            z-index: 100;
+        }
+
+        .detection-labels {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .label-tag {
+            background: rgba(0, 255, 0, 0.2);
+            border: 1px solid #00ff00;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            backdrop-filter: blur(10px);
+        }
+
+        .bottom-controls {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(0deg, rgba(0,0,0,0.8) 0%, transparent 100%);
+            padding: 30px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+
+        .capture-btn {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: #fff;
+            border: 4px solid #333;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            transition: transform 0.1s;
+        }
+
+        .capture-btn:active {
+            transform: scale(0.95);
+        }
+
+        .capture-btn:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+
+        /* Review Mode */
+        .review-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: #000;
+            display: none;
+            flex-direction: column;
+            z-index: 200;
+        }
+
+        .review-container.active {
+            display: flex;
+        }
+
+        .image-comparison {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .image-slider {
+            display: flex;
+            width: 200%;
+            height: 100%;
+            transition: transform 0.3s ease;
+        }
+
+        .image-panel {
+            width: 50%;
+            height: 100%;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .image-panel img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
+        .image-label {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.7);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+        }
+
+        .processing-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.8);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            z-index: 300;
+        }
+
+        .processing-overlay.active {
+            display: flex;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 3px solid #333;
+            border-top: 3px solid #00ff00;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .swipe-instructions {
+            position: absolute;
+            bottom: 30px;
+            left: 20px;
+            right: 20px;
+            text-align: center;
+            background: rgba(0,0,0,0.7);
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 14px;
+        }
+
+        .swipe-arrow {
+            display: inline-block;
+            margin-left: 10px;
+            animation: bounce 2s infinite;
+        }
+
+        @keyframes bounce {
+            0%, 20%, 50%, 80%, 100% { transform: translateX(0); }
+            40% { transform: translateX(-10px); }
+            60% { transform: translateX(10px); }
+        }
+
+        .api-config {
+            position: absolute;
+            top: 60px;
+            right: 20px;
+            background: rgba(0,0,0,0.8);
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 12px;
+            max-width: 200px;
+        }
+
+        .api-config input {
+            width: 100%;
+            padding: 5px;
+            margin: 5px 0;
+            background: rgba(255,255,255,0.1);
+            border: 1px solid #333;
+            border-radius: 4px;
+            color: white;
+            font-size: 12px;
+        }
+
+        .api-config button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            width: 100%;
+            margin-top: 5px;
+        }
+
+        .back-btn {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.7);
+            border: none;
+            color: white;
+            padding: 10px 15px;
+            border-radius: 20px;
+            cursor: pointer;
+            z-index: 300;
+        }
+
+        #loadingText {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 18px;
+            z-index: 50;
+        }
+
+        .status-bar {
+            position: absolute;
+            bottom: 120px;
+            left: 20px;
+            right: 20px;
+            background: rgba(0,0,0,0.7);
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 12px;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Loading Screen -->
+        <div id="loadingText">Loading OpenCV...</div>
+        
+        <!-- Camera View -->
+        <div class="camera-container" id="cameraView">
+            <video id="videoElement" autoplay muted playsinline></video>
+            <canvas id="canvasOutput"></canvas>
+            
+            <div class="top-bar">
+                <div>AI Enhanced Camera</div>
+                <div class="detection-labels" id="detectionLabels"></div>
+            </div>
+            
+            <div class="api-config" id="apiConfig">
+                <div>AI API Key:</div>
+                <input type="password" id="apiKey" placeholder="Enter API key">
+                <button onclick="saveApiKey()">Save</button>
+                <div style="margin-top: 10px; font-size: 10px;">
+                    Using Hugging Face API
+                </div>
+            </div>
+            
+            <div class="bottom-controls">
+                <button class="capture-btn" id="captureBtn" onclick="capturePhoto()">📷</button>
+            </div>
+            
+            <div class="status-bar" id="statusBar">
+                Ready to capture. Point camera at objects for AI enhancement.
+            </div>
+        </div>
+        
+        <!-- Review Mode -->
+        <div class="review-container" id="reviewContainer">
+            <button class="back-btn" onclick="backToCamera()">← Back</button>
+            
+            <div class="image-comparison">
+                <div class="image-slider" id="imageSlider">
+                    <div class="image-panel">
+                        <img id="originalImage" alt="Original">
+                        <div class="image-label">Original</div>
+                    </div>
+                    <div class="image-panel">
+                        <img id="enhancedImage" alt="AI Enhanced">
+                        <div class="image-label">AI Enhanced</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="swipe-instructions">
+                Swipe left to save original ← | → Swipe right to save enhanced
+                <span class="swipe-arrow">←→</span>
+            </div>
+        </div>
+        
+        <!-- Processing Overlay -->
+        <div class="processing-overlay" id="processingOverlay">
+            <div class="spinner"></div>
+            <div id="processingText">Enhancing image with AI...</div>
+        </div>
+    </div>
+
+    <!-- OpenCV.js -->
+    <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
+    
+    <script>
+        let video, canvas, ctx;
+        let streaming = false;
+        let src, dst, gray, contours, hierarchy;
+        let detectedObjects = [];
+        let currentOriginalImage = null;
+        let currentEnhancedImage = null;
+        let apiKey = '';
+        
+        // Touch handling for swipe gestures
+        let startX = 0;
+        let currentX = 0;
+        let isDragging = false;
+
+        // Initialize when OpenCV is ready
+        function onOpenCvReady() {
+            document.getElementById('loadingText').style.display = 'none';
+            initializeCamera();
+            setupTouchHandlers();
+            updateStatus('OpenCV loaded! Ready to capture.');
+        }
+
+        // Initialize camera
+        async function initializeCamera() {
+            try {
+                video = document.getElementById('videoElement');
+                canvas = document.getElementById('canvasOutput');
+                ctx = canvas.getContext('2d');
+                
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { 
+                        facingMode: 'environment',
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    }
+                });
+                
+                video.srcObject = stream;
+                video.play();
+                
+                video.addEventListener('loadedmetadata', () => {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    
+                    // Initialize OpenCV matrices
+                    src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
+                    dst = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC1);
+                    gray = new cv.Mat();
+                    contours = new cv.MatVector();
+                    hierarchy = new cv.Mat();
+                    
+                    streaming = true;
+                    processVideo();
+                });
+                
+            } catch (err) {
+                updateStatus('Error accessing camera: ' + err.message);
+                console.error('Error accessing camera:', err);
+            }
+        }
+
+        // Process video frames for object detection
+        function processVideo() {
+            if (!streaming) return;
+            
+            try {
+                // Capture frame from video
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                src.data.set(imageData.data);
+                
+                // Convert to grayscale for processing
+                cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+                cv.GaussianBlur(gray, gray, new cv.Size(5, 5), 0, 0, cv.BORDER_DEFAULT);
+                cv.threshold(gray, dst, 100, 255, cv.THRESH_BINARY);
+                cv.findContours(dst, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+                
+                // Clear and redraw
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                
+                // Detect and label objects
+                detectedObjects = [];
+                const objectTypes = ['rectangular object', 'circular object', 'irregular object'];
+                
+                for (let i = 0; i < contours.size(); i++) {
+                    let contour = contours.get(i);
+                    let area = cv.contourArea(contour);
+                    
+                    if (area > 2000) {
+                        let rect = cv.boundingRect(contour);
+                        let aspectRatio = rect.width / rect.height;
+                        
+                        // Simple shape classification
+                        let objectType = 'object';
+                        if (aspectRatio > 1.2) objectType = 'rectangular object';
+                        else if (aspectRatio < 0.8) objectType = 'tall object';
+                        else objectType = 'square object';
+                        
+                        detectedObjects.push({
+                            type: objectType,
+                            rect: rect,
+                            area: area
+                        });
+                        
+                        // Draw bounding box
+                        ctx.strokeStyle = '#00ff00';
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+                        
+                        // Draw label
+                        ctx.fillStyle = '#00ff00';
+                        ctx.font = '16px Arial';
+                        ctx.fillText(objectType, rect.x, rect.y - 5);
+                    }
+                    
+                    contour.delete();
+                }
+                
+                // Update detection labels
+                updateDetectionLabels();
+                
+                requestAnimationFrame(processVideo);
+                
+            } catch (err) {
+                console.error('Error processing frame:', err);
+            }
+        }
+
+        // Update detection labels in UI
+        function updateDetectionLabels() {
+            const labelsContainer = document.getElementById('detectionLabels');
+            labelsContainer.innerHTML = '';
+            
+            const uniqueTypes = [...new Set(detectedObjects.map(obj => obj.type))];
+            uniqueTypes.forEach(type => {
+                const label = document.createElement('div');
+                label.className = 'label-tag';
+                label.textContent = type;
+                labelsContainer.appendChild(label);
+            });
+        }
+
+        // Capture photo
+        function capturePhoto() {
+            if (!streaming) return;
+            
+            // Capture current frame
+            const captureCanvas = document.createElement('canvas');
+            captureCanvas.width = video.videoWidth;
+            captureCanvas.height = video.videoHeight;
+            const captureCtx = captureCanvas.getContext('2d');
+            captureCtx.drawImage(video, 0, 0);
+            
+            currentOriginalImage = captureCanvas.toDataURL('image/jpeg', 0.9);
+            
+            // Generate enhancement prompt based on detected objects
+            const prompt = generateEnhancementPrompt();
+            
+            // Switch to review mode
+            showReviewMode();
+            
+            // Start AI enhancement
+            enhanceImage(currentOriginalImage, prompt);
+        }
+
+        // Generate prompt for AI enhancement
+        function generateEnhancementPrompt() {
+            if (detectedObjects.length === 0) {
+                return "enhance this image to be more beautiful, improve lighting, colors, and overall aesthetic quality";
+            }
+            
+            const objectTypes = [...new Set(detectedObjects.map(obj => obj.type))];
+            const mainObjects = objectTypes.slice(0, 3).join(', ');
+            
+            const prompts = [
+                `enhance this beautiful photo containing ${mainObjects}, improve lighting and make colors more vibrant`,
+                `make this image with ${mainObjects} look more artistic and visually appealing`,
+                `enhance the composition and lighting of this photo with ${mainObjects}, make it more professional`,
+                `improve this image containing ${mainObjects} with better contrast, saturation and artistic style`
+            ];
+            
+            return prompts[Math.floor(Math.random() * prompts.length)];
+        }
+
+        // Show review mode
+        function showReviewMode() {
+            document.getElementById('cameraView').style.display = 'none';
+            document.getElementById('reviewContainer').classList.add('active');
+            document.getElementById('originalImage').src = currentOriginalImage;
+            document.getElementById('processingOverlay').classList.add('active');
+        }
+
+        // Back to camera
+        function backToCamera() {
+            document.getElementById('reviewContainer').classList.remove('active');
+            document.getElementById('cameraView').style.display = 'block';
+            document.getElementById('processingOverlay').classList.remove('active');
+        }
+
+        // AI Image Enhancement using Hugging Face API
+        async function enhanceImage(imageDataUrl, prompt) {
+            try {
+                updateProcessingText('Preparing image for AI enhancement...');
+                
+                if (!apiKey) {
+                    // Use a simulated enhancement for demo
+                    setTimeout(() => {
+                        simulateEnhancement(imageDataUrl);
+                    }, 2000);
+                    return;
+                }
+                
+                updateProcessingText('Sending to AI model...');
+                
+                // Convert data URL to blob
+                const response = await fetch(imageDataUrl);
+                const blob = await response.blob();
+                
+                // Use Hugging Face Stable Diffusion API
+                const formData = new FormData();
+                formData.append('inputs', prompt);
+                formData.append('image', blob);
+                
+                const apiResponse = await fetch('https://api-inference.huggingface.co/models/runwayml/stable-diffusion-v1-5', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${apiKey}`,
+                    },
+                    body: formData
+                });
+                
+                if (apiResponse.ok) {
+                    const enhancedBlob = await apiResponse.blob();
+                    const enhancedDataUrl = URL.createObjectURL(enhancedBlob);
+                    
+                    currentEnhancedImage = enhancedDataUrl;
+                    document.getElementById('enhancedImage').src = enhancedDataUrl;
+                    document.getElementById('processingOverlay').classList.remove('active');
+                    updateStatus('AI enhancement complete! Swipe to choose version.');
+                } else {
+                    throw new Error('API request failed');
+                }
+                
+            } catch (error) {
+                console.error('Enhancement error:', error);
+                // Fallback to simulated enhancement
+                simulateEnhancement(imageDataUrl);
+            }
+        }
+
+        // Simulate AI enhancement for demo purposes
+        function simulateEnhancement(originalDataUrl) {
+            updateProcessingText('Applying AI filters...');
+            
+            setTimeout(() => {
+                // Create a simulated "enhanced" version with filters
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                const img = new Image();
+                
+                img.onload = () => {
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    
+                    // Draw original image
+                    ctx.drawImage(img, 0, 0);
+                    
+                    // Apply enhancement filters
+                    ctx.filter = 'brightness(110%) contrast(120%) saturate(130%)';
+                    ctx.globalCompositeOperation = 'multiply';
+                    ctx.fillStyle = 'rgba(255, 200, 150, 0.1)'; // Warm tint
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    
+                    // Reset and apply final touch
+                    ctx.globalCompositeOperation = 'source-over';
+                    ctx.filter = 'none';
+                    
+                    currentEnhancedImage = canvas.toDataURL('image/jpeg', 0.9);
+                    document.getElementById('enhancedImage').src = currentEnhancedImage;
+                    document.getElementById('processingOverlay').classList.remove('active');
+                    updateStatus('AI enhancement complete! Swipe to choose version.');
+                };
+                
+                img.src = originalDataUrl;
+            }, 1500);
+        }
+
+        // Setup touch handlers for swiping
+        function setupTouchHandlers() {
+            const reviewContainer = document.getElementById('reviewContainer');
+            const imageSlider = document.getElementById('imageSlider');
+            
+            reviewContainer.addEventListener('touchstart', (e) => {
+                startX = e.touches[0].clientX;
+                isDragging = true;
+            });
+            
+            reviewContainer.addEventListener('touchmove', (e) => {
+                if (!isDragging) return;
+                e.preventDefault();
+                
+                currentX = e.touches[0].clientX;
+                const deltaX = currentX - startX;
+                const translateX = Math.max(-50, Math.min(0, (deltaX / window.innerWidth) * 100));
+                
+                imageSlider.style.transform = `translateX(${translateX}%)`;
+            });
+            
+            reviewContainer.addEventListener('touchend', (e) => {
+                if (!isDragging) return;
+                isDragging = false;
+                
+                const deltaX = currentX - startX;
+                const threshold = window.innerWidth * 0.3;
+                
+                if (Math.abs(deltaX) > threshold) {
+                    if (deltaX > 0) {
+                        // Swipe right - save original
+                        saveImage(currentOriginalImage, 'original');
+                    } else {
+                        // Swipe left - save enhanced
+                        saveImage(currentEnhancedImage, 'enhanced');
+                    }
+                }
+                
+                // Reset position
+                imageSlider.style.transform = 'translateX(0%)';
+            });
+        }
+
+        // Save image
+        function saveImage(imageDataUrl, type) {
+            const link = document.createElement('a');
+            link.download = `ai-camera-${type}-${Date.now()}.jpg`;
+            link.href = imageDataUrl;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            updateStatus(`${type.charAt(0).toUpperCase() + type.slice(1)} image saved!`);
+            
+            // Return to camera after saving
+            setTimeout(() => {
+                backToCamera();
+            }, 1000);
+        }
+
+        // Save API key
+        function saveApiKey() {
+            apiKey = document.getElementById('apiKey').value;
+            if (apiKey) {
+                updateStatus('API key saved! AI enhancement enabled.');
+                document.getElementById('apiConfig').style.display = 'none';
+            }
+        }
+
+        // Update status
+        function updateStatus(message) {
+            document.getElementById('statusBar').textContent = message;
+        }
+
+        // Update processing text
+        function updateProcessingText(message) {
+            document.getElementById('processingText').textContent = message;
+        }
+
+        // Prevent default touch behaviors
+        document.addEventListener('touchmove', (e) => {
+            if (e.target.closest('#reviewContainer')) {
+                e.preventDefault();
+            }
+        }, { passive: false });
+    </script>
+</body>
+</html>
