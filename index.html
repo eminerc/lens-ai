@@ -560,7 +560,7 @@
         <video id="video" autoplay muted playsinline class="hidden"></video>
         
         <div class="top-bar">
-            <div class="app-title">AI Camera Pro</div>
+            <div class="app-title">Lens</div>
             <div class="top-controls">
                 <button class="icon-btn" onclick="toggleFlash()" title="Flash">
                     <svg viewBox="0 0 24 24">
@@ -863,7 +863,7 @@
                 }
                 
                 // Try OpenAI as backup
-                if (AI_CONFIG.openai.apiKey !== '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') {
+                if (AI_CONFIG.openai.apiKey !== '') {
                     const openaiResult = await enhanceWithOpenAI(imageDataUrl);
                     if (openaiResult.success) return openaiResult;
                 }
